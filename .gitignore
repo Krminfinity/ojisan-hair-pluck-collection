@@ -120,3 +120,6 @@ generated-images/
 !public/**/*.png
 !public/**/*.jpg
 !public/**/*.jpeg
+
+# Chat history files should be included
+!docs/chat-history/**/*.json

@@ -71,6 +71,7 @@
 
 ### 📝 開発記録
 - [開発ログ](./docs/development-log.md) - 開発の経緯・重要な決定・学び
+- [チャット履歴](./docs/chat-history/) - VS Code Copilot Chatとの完全な対話記録
 
 ## 🎯 開発理念
 
