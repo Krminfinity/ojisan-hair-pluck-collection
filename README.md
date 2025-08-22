@@ -60,6 +60,7 @@
 
 ## 📖 ドキュメント
 
+### 📋 設計ドキュメント
 - [要件定義書](./docs/requirements.md) - プロジェクトの概要と機能要件
 - [技術仕様書](./docs/technical-spec.md) - システム構成と技術詳細
 - [基本設計書](./docs/basic-design.md) - アーキテクチャ設計
@@ -67,6 +68,9 @@
 - [UI/UX設計書](./docs/ui-ux-design.md) - デザインシステムとインタラクション
 - [開発計画書](./docs/development-plan.md) - 開発スケジュールとマイルストーン
 - [無料リソース活用ガイド](./docs/free-resources-guide.md) - 無料サービスの活用方法
+
+### 📝 開発記録
+- [開発ログ](./docs/development-log.md) - 開発の経緯・重要な決定・学び
 
 ## 🎯 開発理念
 
