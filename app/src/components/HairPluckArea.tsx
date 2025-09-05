@@ -1,103 +1,151 @@
 "use client";
-import React, { useEffect, useRef } from "react";
-import { useGameStore } from "@/store/gameStore";
+import React, { useRef, useEffect, useState } from 'react';
+import { OjisanData } from '@/store/gameStore';
+import { ImageProcessor } from '@/lib/imageProcessor';
 
-// 髪の毛をCanvasで描画し、ドラッグで抜けるインタラクション
-export default function HairPluckArea() {
+interface HairPluckAreaProps {
+  ojisan: OjisanData;
+  onHairPlucked: (updatedOjisan: OjisanData) => void;
+}
+
+export const HairPluckArea: React.FC<HairPluckAreaProps> = ({
+  ojisan,
+  onHairPlucked
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const {
-    currentOjisan,
-    selectedHairId,
-    isDragging,
-    dragStart,
-    dragCurrent,
-    pluckHair,
-    selectHair,
-    startDrag,
-    updateDrag,
-    endDrag,
-  } = useGameStore();
+  const [imageProcessor, setImageProcessor] = useState<ImageProcessor | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  // 髪の毛クリック判定
-  const detectHairAt = (x: number, y: number) => {
-    if (!currentOjisan) return null;
-    // 簡易: 円形ヒット判定
-    return currentOjisan.hairs.find(
-      (h) =>
-        !h.isPlucked &&
-        Math.hypot(h.x - x, h.y - y) < 16 // 16px以内
-    );
-  };
-
-  // Canvas描画
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !currentOjisan) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // 髪の毛描画
-    currentOjisan.hairs.forEach((hair) => {
-      ctx.save();
-      ctx.translate(hair.x, hair.y);
-      ctx.rotate(hair.angle);
-      ctx.strokeStyle = hair.isPlucked ? "#bbb" : "#222";
-      ctx.lineWidth = hair.thickness;
-      ctx.globalAlpha = hair.isPlucked ? 0.2 : 1;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(0, -hair.length);
-      ctx.stroke();
-      ctx.restore();
-    });
-  }, [currentOjisan]);
+    if (!canvas || !ojisan) return;
 
-  // マウス・タッチイベント
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (!currentOjisan) return;
-    const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const hair = detectHairAt(x, y);
-    if (hair) {
-      selectHair(hair.id);
-      startDrag(x, y);
-    }
-  };
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging || !dragStart || !selectedHairId) return;
-    const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    updateDrag(x, y);
-    // 引っ張り距離で抜ける判定
-    const dist = Math.hypot(x - dragStart.x, y - dragStart.y);
-    if (dist > 40) {
-      pluckHair(selectedHairId);
-      endDrag();
-      // サウンド・バイブ
-      if (typeof window !== "undefined") {
-        if (window.navigator.vibrate) window.navigator.vibrate([80]);
-        const audio = new Audio("/pluck.mp3");
-        audio.play();
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = async () => {
+      // キャンバスサイズを画像に合わせる
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      // ImageProcessorを初期化
+      const processor = new ImageProcessor(canvas);
+      setImageProcessor(processor);
+      
+      // 初回は元の画像を描画
+      ctx.drawImage(img, 0, 0);
+      
+      // 髪の毛のポイントがまだ生成されていない場合は生成
+      if (ojisan.hairs.length === 0) {
+        const hairPoints = processor.generateHairPoints(img, 150); // 150個の髪の毛ポイント
+        const updatedOjisan = {
+          ...ojisan,
+          hairs: hairPoints
+        };
+        onHairPlucked(updatedOjisan);
+      } else {
+        // 既に抜かれた髪がある場合は、現在の状態を再描画
+        await redrawWithPluckedHairs(processor, img, ojisan);
+      }
+    };
+
+    img.src = ojisan.currentImageUrl;
+  }, [ojisan.currentImageUrl]);
+
+  const redrawWithPluckedHairs = async (processor: ImageProcessor, img: HTMLImageElement, currentOjisan: OjisanData) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // 元の画像を描画
+    ctx.drawImage(img, 0, 0);
+    
+    // 抜かれた髪の毛の領域にマスクを適用
+    const pluckedHairs = currentOjisan.hairs.filter(h => h.isPlucked);
+    if (pluckedHairs.length > 0) {
+      for (const hair of pluckedHairs) {
+        processor.createHairMask(hair.x, hair.y, hair.radius);
       }
     }
   };
-  const handlePointerUp = () => {
-    endDrag();
+
+  const handlePointerDown = (event: React.PointerEvent) => {
+    if (!imageProcessor || isProcessing) return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    const x = (event.clientX - rect.left) * scaleX;
+    const y = (event.clientY - rect.top) * scaleY;
+
+    // 近くの髪の毛を探す
+    const nearbyHair = ojisan.hairs.find(hair => {
+      const distance = Math.sqrt((hair.x - x) ** 2 + (hair.y - y) ** 2);
+      return !hair.isPlucked && distance <= hair.radius;
+    });
+
+    if (nearbyHair) {
+      pluckHair(nearbyHair);
+    }
+  };
+
+  const pluckHair = async (hair: typeof ojisan.hairs[0]) => {
+    if (!imageProcessor || isProcessing) return;
+    
+    setIsProcessing(true);
+    
+    try {
+      // 髪の毛を抜く（マスクを適用）
+      imageProcessor.createHairMask(hair.x, hair.y, hair.radius);
+      
+      // 状態を更新
+      const updatedHairs = ojisan.hairs.map(h => 
+        h.id === hair.id ? { ...h, isPlucked: true } : h
+      );
+      
+      // 現在の画像データを取得してcurrentImageUrlを更新
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const currentImageUrl = canvas.toDataURL('image/png');
+        const updatedOjisan = {
+          ...ojisan,
+          hairs: updatedHairs,
+          currentImageUrl
+        };
+        onHairPlucked(updatedOjisan);
+      }
+    } catch (error) {
+      console.error('髪の毛を抜く処理でエラーが発生しました:', error);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={300}
-      height={120}
-      className="bg-transparent touch-none select-none"
-      style={{ border: "none", width: 300, height: 120, display: "block" }}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
-    />
+    <div className="relative">
+      <canvas
+        ref={canvasRef}
+        onPointerDown={handlePointerDown}
+        className="max-w-full h-auto cursor-pointer border-2 border-gray-300 rounded-lg"
+        style={{ touchAction: 'none' }}
+      />
+      {isProcessing && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-lg">
+          <div className="text-white font-bold">処理中...</div>
+        </div>
+      )}
+      <div className="mt-2 text-sm text-gray-600">
+        残り髪の毛: {ojisan.hairs.filter(h => !h.isPlucked).length} / {ojisan.hairs.length}
+      </div>
+    </div>
   );
-}
+};
